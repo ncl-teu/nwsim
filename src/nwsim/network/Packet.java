@@ -2,7 +2,7 @@ package nwsim.network;
 
 import nwsim.Param;
 
-import java.io.Serializable;
+import java.io.*;
 import java.util.HashMap;
 import java.util.LinkedList;
 
@@ -20,7 +20,14 @@ public class Packet implements Serializable {
      */
     protected int flag;
 
+    /**
+     * リクエストパケットかどうかのフラグ
+     */
     protected boolean isRequest;
+
+
+    protected long sessionID;
+
     /**
      * パケットサイズ(byte)
      */
@@ -87,10 +94,20 @@ public class Packet implements Serializable {
      */
     protected int hostBit;
 
+
+    /**
+     * メッセージのタイプ
+     */
     protected Param.MSG_TYPE type;
 
+    /**
+     * 要求の履歴
+     */
     protected LinkedList<ForwardHistory> requestHistoryList;
 
+    /**
+     * 応答の経路
+     */
     protected LinkedList<ForwardHistory> responseHistoryList;
 
     /**

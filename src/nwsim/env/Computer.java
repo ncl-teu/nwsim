@@ -12,6 +12,12 @@ import java.util.Iterator;
 public class Computer extends Node {
 
     /**
+     * トランザクション管理用のMap
+     * <トランザクションID, シーケンス番号>という形式
+     */
+    private HashMap<String, Long> tranMap;
+
+    /**
      * 保留時間
      */
     protected double lambda;
@@ -20,8 +26,16 @@ public class Computer extends Node {
         super(iD, type, nicMap);
         //要求発生確率
         this.lambda = Param.genDouble(Param.request_exp_dist_lambda_min, Param.request_exp_dist_lambda_max, 1, 0.5);
+        this.tranMap = new HashMap<String, Long>();
 
+    }
 
+    public HashMap<String, Long> getTranMap() {
+        return tranMap;
+    }
+
+    public void setTranMap(HashMap<String, Long> tranMap) {
+        this.tranMap = tranMap;
     }
 
     @Override
@@ -67,8 +81,7 @@ public class Computer extends Node {
         //まずは要求の種類を決める．
         int req_type_index = Param.genInt(0, Param.req_type.length - 1, 0, 0);
         int req_type = Param.req_type[req_type_index];
-        //req_type = 0;
-
+        //req_type = 0
         switch (req_type) {
             case Param.HTTP_GET_REQUEST:
                 long remainedSize = Param.http_get_request_size;
@@ -90,8 +103,9 @@ public class Computer extends Node {
                         flg = Param.PACKET_END;
                     }
 
-                    Packet p2 = this.createPacekt(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
+                    Packet p2 = this.createPacket(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
                             p.getFromPort(), p.getToPort(), p.getData());
+
                     p2.setMinBW((long) nic.getBw());
                     p2.setType(Param.MSG_TYPE.HTTP_GET);
                     p2.setReqPacketSize(p.getReqPacketSize());
@@ -124,7 +138,7 @@ public class Computer extends Node {
                         flg = Param.PACKET_END;
                     }
 
-                    Packet p2 = this.createPacekt(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
+                    Packet p2 = this.createPacket(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
                             p.getFromPort(), p.getToPort(), p.getData());
                     p2.setMinBW((long) nic.getBw());
                     p2.setType(Param.MSG_TYPE.HTTP_POST);

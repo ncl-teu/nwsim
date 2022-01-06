@@ -1,10 +1,12 @@
 package nwsim.network;
 
+import java.io.Serializable;
+
 /**
  * Created by Hidehiro Kanemitsu on 2021/10/15
  * ルーティングテーブルのエントリです．
  */
-public class RouteInfo {
+public class RouteInfo implements Serializable {
 
     /**
      * 宛先ネットワークアドレス
@@ -35,6 +37,8 @@ public class RouteInfo {
 
     protected boolean isTransfered;
 
+    protected long lastUpdatedTime;
+
     public RouteInfo(String nwAddress, String subNetMask, String nextHop, String nicName, double metric) {
         this.nwAddress = nwAddress;
         this.subNetMask = subNetMask;
@@ -42,10 +46,19 @@ public class RouteInfo {
         this.nicName = nicName;
         this.metric = metric;
         this.isTransfered = false;
+        this.lastUpdatedTime = System.currentTimeMillis();
     }
 
     public RouteInfo(){
 
+    }
+
+    public long getLastUpdatedTime() {
+        return lastUpdatedTime;
+    }
+
+    public void setLastUpdatedTime(long lastUpdatedTime) {
+        this.lastUpdatedTime = lastUpdatedTime;
     }
 
     public String getNwAddress() {

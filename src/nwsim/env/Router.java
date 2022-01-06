@@ -8,7 +8,6 @@ import nwsim.network.filtering.FilterRule;
 import nwsim.network.routing.ExchangeTimer;
 
 import java.util.*;
-import java.util.logging.Filter;
 
 /**
  *
@@ -58,6 +57,15 @@ public class Router extends Node {
     private TreeMap<Integer, FilterRule> filterMap;
 
     /**
+     * 自身の管理するLANのPCリスト
+     */
+    private LinkedList<Computer> LANPCList;
+
+    private LinkedList<Nic> LanNicList;
+
+
+
+    /**
      * フィルタリングテーブル
      *
      * @param iD
@@ -75,7 +83,16 @@ public class Router extends Node {
         this.currentQueueLength = 0;
         this.filterMap = new TreeMap<Integer, FilterRule>();
 
+        this.LANPCList = new LinkedList<Computer>();
+        this.LanNicList = new LinkedList<Nic>();
+    }
 
+    public LinkedList<Nic> getLanNicList() {
+        return LanNicList;
+    }
+
+    public void setLanNicList(LinkedList<Nic> lanNicList) {
+        LanNicList = lanNicList;
     }
 
     /**
@@ -605,6 +622,13 @@ public class Router extends Node {
         }
     }
 
+    public LinkedList<Computer> getLANPCList() {
+        return LANPCList;
+    }
+
+    public void setLANPCList(LinkedList<Computer> LANPCList) {
+        this.LANPCList = LANPCList;
+    }
 
     public void setRemainOnlyOne(boolean remainOnlyOne) {
         isRemainOnlyOne = remainOnlyOne;

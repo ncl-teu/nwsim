@@ -4,13 +4,17 @@ import nwsim.Param;
 import nwsim.logger.NWLog;
 import nwsim.network.*;
 import nwsim.network.routing.AbstractRouting;
-import nwsim.network.routing.NantokaRouting;
+import nwsim.network.routing.RIP;
 import nwsim.network.routing.RandomRouting;
 
 import java.io.Serializable;
 import java.math.BigInteger;
 import java.net.InetAddress;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Created by Hidehiro Kanemitsu
@@ -80,6 +84,12 @@ public class Node implements Serializable, Runnable {
     protected HashMap<String, LinkedList<Packet>> receivedPacketMap;
 
     /**
+     * 未解決なARPマップ
+     */
+    protected HashMap<String, LinkedBlockingQueue<Packet>>waitingARPMap;
+
+
+    /**
      * ARPテーブル．
      *
      * @param iD
@@ -95,23 +105,32 @@ public class Node implements Serializable, Runnable {
         this.routingList = new ArrayList<AbstractRouting>();
         HashMap arpMap = new HashMap<String, String>();
         this.routingTable = new HashMap<String, HashMap<String, RouteInfo>>();
-        RandomRouting routing_random = new RandomRouting(10000);
+        RandomRouting routing_random = new RandomRouting(Param.routing_exchangespan);
         this.routingList.add(routing_random);
-      if(this.getType() == Param.TYPE_ROUTER){
-            Router r = (Router)this;
-            NantokaRouting routing_nantoka = new NantokaRouting(1000, r);
-            this.routingList.add(routing_nantoka);
-       }else{
-          this.routingList.add(routing_random);
-      }
+        if (this.getType() == Param.TYPE_ROUTER) {
+            Router r = (Router) this;
+            RIP rip = new RIP(Param.routing_exchangespan, r);
+            this.routingList.add(rip);
+        } else {
+            this.routingList.add(routing_random);
+        }
 
         this.usedRouting = this.routingList.get(Param.routing_no);
         this.receivedPacketMap = new HashMap<String, LinkedList<Packet>>();
         this.rtCacheMap = new HashMap<String, RTCacheEntry>(100);
+        this.waitingARPMap = new HashMap<String, LinkedBlockingQueue<Packet>>();
+
 
 
     }
 
+    public HashMap<String, LinkedBlockingQueue<Packet>> getWaitingARPMap() {
+        return waitingARPMap;
+    }
+
+    public void setWaitingARPMap(HashMap<String, LinkedBlockingQueue<Packet>> waitingARPMap) {
+        this.waitingARPMap = waitingARPMap;
+    }
 
     /**
      * @param p
@@ -152,7 +171,7 @@ public class Node implements Serializable, Runnable {
         this.routingList = routingList;
     }
 
-    public Packet createPacekt(int flg, String tranID,
+    public Packet createPacket(int flg, String tranID,
                                long headerSize, String fromIP, String toIP, int fromPort, int toPort, String data) {
 
 
@@ -226,7 +245,7 @@ public class Node implements Serializable, Runnable {
                 remainedSize = Param.http_post_response_size * 1024;
             }
             //制御パケットの場合は，1パケットのみ
-            if(p.getType() == Param.MSG_TYPE.CTRL){
+            if (p.getType() == Param.MSG_TYPE.CTRL) {
                 remainedSize = Param.header_size + Param.mtu;
             }
 
@@ -237,7 +256,7 @@ public class Node implements Serializable, Runnable {
             remainedSize -= p.getPacketSize();
             long count = remainedSize / p.getPacketSize();
             p.setFlag(Param.PACKET_START);
-            if(remainedSize <= 0){
+            if (remainedSize <= 0) {
                 p.setFlag(Param.PACKET_END);
             }
 
@@ -251,7 +270,7 @@ public class Node implements Serializable, Runnable {
                 }
 
 
-                Packet p2 = this.createPacekt(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
+                Packet p2 = this.createPacket(flg, p.getTranID(), p.getHeaderSize(), p.getFromIP(), p.getToIP(),
                         p.getFromPort(), p.getToPort(), p.getData());
                 p2.setReqPacketSize(reqDataSize);
                 p2.setRequest(false);
@@ -323,7 +342,7 @@ public class Node implements Serializable, Runnable {
 */
             long totalReqTime = p.getRequestHistoryList().getLast().getArrivalTime() - p.getRequestHistoryList().getFirst().getStartTime() + p.getTotalDelay();
 
-             NWLog.getIns().tranLog(p, "TTL_Max");
+            NWLog.getIns().tranLog(p, "TTL_Max");
 
             return;
         }
@@ -460,18 +479,22 @@ public class Node implements Serializable, Runnable {
 
     }
 
+
+
     /**
      * 特定のIPをARPに持つNICを返す
+     *
      * @param ip
      * @return
      */
-    public Nic findNicFromIP(String ip){
+    public Nic findNicFromIP(String ip) {
+
         Iterator<String> arpIte = this.arpMap.keySet().iterator();
         Nic nic = null;
-        while(arpIte.hasNext()){
+        while (arpIte.hasNext()) {
             String eth = arpIte.next();
             HashMap<String, String> map = this.arpMap.get(eth);
-            if(map.containsKey(ip)){
+            if (map.containsKey(ip)) {
                 nic = Env.getIns().getNicMap().get(map.get(ip));
                 break;
             }
@@ -487,28 +510,26 @@ public class Node implements Serializable, Runnable {
             //ルータならば，NAPTテーブルを見る．
 
 
-
-
             synchronized (((Router) this).NAPTMap) {
                 String fromIP = null;
-                if(Param.dnat_mode == 0){
+                if (Param.dnat_mode == 0) {
                     fromIP = p.getRequestHistoryList().getLast().getToIP();
 
-                }else{
-                    if(p.getResponseHistoryList().size() == 1){
+                } else {
+                    if (p.getResponseHistoryList().size() == 1) {
                         fromIP = p.getResponseHistoryList().getLast().getFromIP();
-                    }else{
+                    } else {
                         int len = p.getRequestHistoryList().size();
-                        fromIP = p.getRequestHistoryList().get(len-2).getToIP();
+                        fromIP = p.getRequestHistoryList().get(len - 2).getToIP();
                     }
 
                 }
-               // NAPTEntry entry_org = ((Router) this).getNAPTMap().get(p.getRequestHistoryList().getFirst().getFromID());
+                // NAPTEntry entry_org = ((Router) this).getNAPTMap().get(p.getRequestHistoryList().getFirst().getFromID());
                 //NAPTEntry entry = ((Router) this).findNAPTEntry(p.getToIP(), p.getToPort(), fromIP, p.getFromPort());
                 NAPTEntry entry = ((Router) this).findNAPTEntry(atNic.getIpAddress(), p.getToPort(), fromIP, p.getFromPort());
 
                 if (entry == null) {
-                     System.out.println("XX: fromIP:"+p.getFromIP() + "/fromPort:"+p.getFromPort() + "/toIP:"+p.getToIP() + "/toPort:"+p.getToPort());
+                    System.out.println("XX: fromIP:" + p.getFromIP() + "/fromPort:" + p.getFromPort() + "/toIP:" + p.getToIP() + "/toPort:" + p.getToPort());
                     return;
                 }
                 //local情報を取得
@@ -520,7 +541,7 @@ public class Node implements Serializable, Runnable {
                 String mac_nextHop = this.findMacAddress(entry.getSrcLocalIP());
                 p.setToMacAddress(mac_nextHop);
                 //ルーティングテーブルを見る．
-               // LinkedList<RouteInfo> rList = this.findRouteList(entry.getSrcLocalIP(), atNic, p);
+                // LinkedList<RouteInfo> rList = this.findRouteList(entry.getSrcLocalIP(), atNic, p);
                 //srcLocalIPと同じNWアドレスのものを取得する．
                 //srcLocalIPをarpmapから探して，それに該当するnicを特定する．
                 Nic fromexitnic = this.findNicFromIP(entry.getSrcLocalIP());
@@ -529,9 +550,27 @@ public class Node implements Serializable, Runnable {
                 //RouteInfo rinfo = this.usedRouting.selectRoute(rList);
                 //送信元のNicの更新
                 //Nic fromexitnic = this.nicMap.get(rinfo.getNicName());
-               //if (p.getFromIP().startsWith("192.168.0.")) {
-                    p.setFromIP(fromexitnic.getIpAddress());
-               // }
+                //if (p.getFromIP().startsWith("192.168.0.")) {
+                if(fromexitnic == null){
+                    //最後の戻りホップ（ルータ->送信元)のARPが無い場合．
+                    Nic fromNic = this.findNicFromIP("192.168.0.1");
+                    if(this.waitingARPMap.containsKey(p.getToIP())){
+                        //送るのか，送らないのかの判断が必要．
+                        this.waitingARPMap.get(p.getToIP()).add(p);
+                        return;
+                    }
+                    //pを，waitingARPへ登録する．
+                    LinkedBlockingQueue<Packet> queue = new LinkedBlockingQueue<Packet>();
+                    queue.offer(p);
+                    this.waitingARPMap.put(p.getToIP(), queue);
+                    //this.waitingARPMap.get(p.getToIP()).add(p);
+                    Packet arpReqPacket = this.genARPReqPacket(p.getToIP(), fromNic);
+                    //パケットを生成する．
+                    fromNic.broadCastARPReq(arpReqPacket);
+                    return;
+                }
+                p.setFromIP(fromexitnic.getIpAddress());
+                // }
                 //p.setFromIP(p.getRequestHistoryList().getFirst().getToIP());
 
                 //Nicを取得する．
@@ -539,6 +578,36 @@ public class Node implements Serializable, Runnable {
 
                 if (p.getToMacAddress() == null) {
                     //System.out.println();
+                    if(Param.noarp_enable == 1){
+                        //ここに処理がきます．
+                        Packet arpPacket = this.genARPReqPacket(p.getToIP(), fromexitnic);
+                        //this.waitingARPMap.put(p.getToIP(), p);
+                        fromexitnic.broadCastARPReq(arpPacket);
+
+                      /*  while(true){
+                            //待つ．
+                            try{
+                               Thread.sleep(0);
+                               Packet p1 = this.waitingARPMap.get(p.getToIP());
+                               if(p1.getToMacAddress() == null){
+                               //if(this.waitingARPMap.containsKey(p.getToIP())){
+                                   continue;
+                               }else{
+                                   p = p1;
+                                   break;
+                               }
+                            }catch(Exception e){
+                                e.printStackTrace();
+                            }
+                        }*/
+                        //そして削除
+                        this.waitingARPMap.remove(p.getToIP());
+
+                        this.sendPacket(p, fromexitnic);
+                        if (p.getFlag() == Param.PACKET_END) {
+                            ((Router) this).getNAPTMap().remove(entry.getSrcLocalIP() + ":" + entry.getSrcGlobalPort());
+                        }
+                    }
                 } else {
                     this.sendPacket(p, fromexitnic);
                     if (p.getFlag() == Param.PACKET_END) {
@@ -553,6 +622,24 @@ public class Node implements Serializable, Runnable {
         }
     }
 
+    public Packet genARPReqPacket(String toIP, Nic fromNic){
+        Packet p = new Packet(Param.header_size, fromNic.getIpAddress(), null,
+                Param.genInt(1025, 65535, 1, 0.5), 11111, toIP);
+
+        p.setTranID("ARP_BCast" + "-" + this.getID() + "-" + System.currentTimeMillis());
+        p.setTotalDataSize(Param.header_size + Param.mtu);
+        p.setReqPacketSize(Param.header_size + Param.mtu);
+        //メッセージタイプの設定
+        p.setType(Param.MSG_TYPE.ARP_REQ);
+
+        //1パケットしか送らないから，END扱いにする．
+        p.setFlag(Param.PACKET_END);
+        p.setRequest(true);
+
+        p.setMinBW((long)(fromNic.getBw()));
+        return p;
+
+    }
     /**
      * 指定のパケットを送信する処理．
      * 必要な情報は予めpにセットされていることが前提．
@@ -565,7 +652,48 @@ public class Node implements Serializable, Runnable {
         String toIP = p.getToIP();
         int ttl = p.getTTL();
         p.setTTL(ttl - 1);
+        if(p.getToMacAddress() == null){
+            if(this.waitingARPMap.containsKey(p.getToIP())){
+                //送るのか，送らないのかの判断が必要．
+                this.waitingARPMap.get(p.getToIP()).add(p);
+                return;
+            }
+            //pを，waitingARPへ登録する．
+            LinkedBlockingQueue<Packet> queue = new LinkedBlockingQueue<Packet>();
+            queue.offer(p);
+            this.waitingARPMap.put(p.getToIP(), queue);
+            //this.waitingARPMap.get(p.getToIP()).add(p);
+            Packet arpReqPacket = this.genARPReqPacket(p.getToIP(), fromNic);
+            //パケットを生成する．
+            fromNic.broadCastARPReq(arpReqPacket);
+            return;
+/*
+            while(true){
+                //待つ．
+                try{
+                    Thread.sleep(0);
+                    Packet p1 = this.waitingARPMap.get(p.getToIP());
+                    if(p1 == null){
+                        break;
+                    }
+                    if(p1.getToMacAddress() == null){
+                   // if(this.waitingARPMap.containsKey(p.getToIP())){
+                        continue;
+                    }else{
+                        p = p1;
+                        break;
+                    }
+                }catch(Exception e){
+                    e.printStackTrace();
+                }
+            }
+
+            //そして削除する．
+            this.waitingARPMap.remove(p.getToIP());
+*/
+        }
         Nic nic = Env.getIns().getNicMap().get(p.getToMacAddress());
+
         Node node = nic.getMyNode();
         long current = System.currentTimeMillis();
         //Historyの準備

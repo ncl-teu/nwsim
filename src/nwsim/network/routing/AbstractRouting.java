@@ -112,12 +112,32 @@ public abstract class AbstractRouting {
     }
 
     /**
+     *
+     * @param p
+     * @param info
+     * @param atNic
+     */
+    public void addNewRouteInfo(Packet p, RouteInfo info, Nic atNic){
+        RouteInfo newInfo = new RouteInfo();
+        newInfo.setMetric(info.getMetric() + 1);
+        newInfo.setLastUpdatedTime(System.currentTimeMillis());
+        newInfo.setNwAddress(info.getNwAddress());
+        newInfo.setSubNetMask(info.getSubNetMask());
+        newInfo.setNicName(atNic.getNicName());
+        newInfo.setNextHop(p.getFromIP());
+        //newInfoを登録
+        //もしなければ新規追加
+        this.router.registerRoute(newInfo);
+    }
+
+    /**
      * CTRLパケットの応答が到着した場合の処理です．
      * ここで，受け取った経路情報をどうするかを書いてください．
      * @param p 受信した応答パケット
+     *
      * @return
      */
-    public boolean updateRouteMap(Packet p){
+    public boolean updateRouteMap(Packet p, Nic atNic){
         return false;
 
     }

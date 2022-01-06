@@ -1,22 +1,22 @@
 package nwsim.env;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.concurrent.LinkedBlockingQueue;
-
 import nwsim.Param;
 import nwsim.logger.NWLog;
 import nwsim.network.ForwardHistory;
-import nwsim.network.NAPTEntry;
 import nwsim.network.Packet;
 import nwsim.network.RouteInfo;
 import nwsim.network.filtering.FilterRule;
+import nwsim.network.routing.RIP;
+
+import java.io.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Created by Hidehiro Kanemitsu
  */
-public class Nic implements Runnable {
+public class Nic implements Runnable, Serializable  {
 
     /**
      * 02: インタフェース名
@@ -272,6 +272,16 @@ public class Nic implements Runnable {
                 if (!this.receiveBuffer.isEmpty()) {
                     //最初の要素を取ってくる．
                     Packet p = this.receiveBuffer.poll();
+                    if(this.getMyNode().getType() == Param.TYPE_ROUTER){
+                        //ルータの場合は，まちリストを見る．
+                        Router r = (Router)this.getMyNode();
+                        if(r.getWaitingARPMap().containsKey(p.getToIP())){
+                            //末尾に追加する．
+                            this.receiveBuffer.offer(p);
+                            continue;
+                        }
+                    }
+
 
                     try {
                         // Thread.sleep(this.delay);
@@ -303,6 +313,79 @@ public class Nic implements Runnable {
                         }
                         continue;
                     }
+
+                    if(p.getType() == Param.MSG_TYPE.ARP_REQ){
+                        //データ部を見る．
+                        String wantIP = p.getData();
+                        if(wantIP.equals(this.getIpAddress())){
+                            //返す．
+                            Packet arpResPacket = new Packet(Param.header_size, this.getIpAddress(), p.getFromIP(),
+                                    Param.genInt(1025, 65535, 1, 0.5), 11111, this.getMacAddress());
+                            String toMac = this.getMyNode().findMacAddress(p.getFromIP());
+                            arpResPacket.setToMacAddress(toMac);
+                            arpResPacket.setTranID(p.getTranID());
+                            arpResPacket.setTotalDataSize(Param.header_size + Param.mtu);
+                            arpResPacket.setReqPacketSize(Param.header_size + Param.mtu);
+                            //メッセージタイプの設定
+                            arpResPacket.setType(Param.MSG_TYPE.ARP_RES);
+                            arpResPacket.setRequestHistoryList(p.getRequestHistoryList());
+                            //1パケットしか送らないから，END扱いにする．
+                            arpResPacket.setFlag(Param.PACKET_END);
+                            arpResPacket.setRequest(false);
+
+                            arpResPacket.setMinBW((long)(Math.min(p.getMinBW(), this.getBw())));
+                            this.getMyNode().sendPacket(arpResPacket, this);
+
+                        }else{
+                            //違えば何もしない．
+                        }
+                        continue;
+                    }
+
+                    if(p.getType() == Param.MSG_TYPE.ARP_RES){
+                        //まずは，macを取り出す．
+                        String mac = p.getData();
+                        //そしてAPRへ登録．
+                        this.getMyNode().registerArp(this.getNicName(), p.getFromIP(), mac);
+                        //waitリストに入っているパケット全てに対して，macアドレスを登録する．
+
+
+                        LinkedBlockingQueue<Packet> queue = this.getMyNode().getWaitingARPMap().get(p.getFromIP());
+
+                        Packet oldP = queue.peek();
+                        //tranLogへ書き出す前に，from/ToのARPを書く．
+                        String fromID = oldP.getRequestHistoryList().getFirst().getFromID();
+                        String toID = p.getRequestHistoryList().getLast().getFromID();
+
+                        String arpFromID = p.getResponseHistoryList().getFirst().getFromID();
+                        String arpToID = p.getResponseHistoryList().getFirst().getToID();
+                        String tranStr;
+                        if(fromID.equals(arpFromID)){
+                            tranStr = fromID + "- ??";
+                        }else{
+                            tranStr = fromID + "-" + arpFromID;
+                        }
+                        String tran = tranStr + "/ARP@" + arpFromID  + " ->" + arpToID;
+                        p.setTranID(tran);
+
+
+                        //String aprTran =
+                        Param.getIns().tranLog(p, "ARP_OK");
+
+                        while(!queue.isEmpty()){
+                            Packet p1 = queue.poll();
+                            p1.setToMacAddress(mac);
+                            //this.myNode.sendPacket(p1, this);
+                            if(this.getMyNode().getType()==Param.TYPE_ROUTER){
+
+                                this.getMyNode().sendPacket(p1, this);
+                            }
+                        }
+
+                        continue;
+
+                    }
+
                     //もし制御パケットであれば，
                     if (p.getType() == Param.MSG_TYPE.CTRL) {
                         if (p.isRequest()) {
@@ -314,6 +397,7 @@ public class Nic implements Runnable {
                                 HashMap<String, HashMap<String, RouteInfo>> routeMap =
                                         this.myNode.getUsedRouting().getUpdatedRouteMap();
                                 p.setAplMap(routeMap);
+                                p.setRequest(false);
                                 this.getMyNode().returnPacketProcess(p, this, p.getType());
 
                             } else {
@@ -322,11 +406,19 @@ public class Nic implements Runnable {
                             }
                         } else {
                             //応答パケットの場合の処理
-                            this.getMyNode().getUsedRouting().updateRouteMap(p);
+                            this.getMyNode().getUsedRouting().updateRouteMap(p, this);
                             //System.out.println("******おうとうきたぜ");
                         }
-
-
+                        continue;
+                    }
+                    //RIPのメトリック計算用であれば
+                    if (p.getType() == Param.MSG_TYPE.RIP_METRIC) {
+                       if(this.getMyNode().getType()==Param.TYPE_ROUTER){
+                           Router r = (Router)this.getMyNode();
+                           RIP rip = (RIP)r.getUsedRouting();
+                           //メトリック反映処理
+                           rip.processMetric(p, this);
+                        }
                         continue;
                     }
                     if (this.getMyNode().getType() == Param.TYPE_ROUTER) {
@@ -402,6 +494,31 @@ public class Nic implements Runnable {
                                 HashMap<String, Double> map = Param.getIns().calcAvgBufferSize(p);
                                 //とりあえず格納．
                                 this.myNode.addReceivedPacket(p);
+                                //今来たシーケンス番号を取得する
+                                long currentNo = p.getSequenceNo();
+                                Computer pc = (Computer)this.getMyNode();
+                                HashMap<String, Long> tranMap = pc.getTranMap();
+                                if(tranMap.containsKey(p.getTranID())){
+                                    //直前のシーケンス番号を取得
+                                    long prevSequenceNo = tranMap.get(p.getTranID());
+                                    //今受信したパケットの番号 - 1が直前の番号か
+                                    if(p.getSequenceNo() - 1 == prevSequenceNo){
+                                        //OK
+                                        tranMap.put(p.getTranID(), p.getSequenceNo());
+                                    }else{
+                                        //パケットが欠落している場合
+                                    }
+
+                                }else{
+                                    //新規登録の場合は，最初が1かどうか
+                                    if(p.getSequenceNo() == 1){
+                                        //新規登録
+                                        tranMap.put(p.getTranID(), p.getSequenceNo());
+                                    }else{
+                                        //1が欠落している場合
+                                    }
+
+                                }
                                 //特に，最終パケットである場合の処理
                                 if (p.getFlag() == Param.PACKET_END) {
                                     //Statistics stat = Env.getIns().findStat(p.getTranID());
@@ -430,6 +547,27 @@ public class Nic implements Runnable {
 
     }
 
+
+    public  synchronized Serializable deepCopy(){
+        //System.gc();
+
+        try{
+            ByteArrayOutputStream bout = new ByteArrayOutputStream();
+            ObjectOutputStream out = new ObjectOutputStream(bout);
+            out.writeObject(this);
+            out.close();
+            byte[] bytes = bout.toByteArray();
+            ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes));
+            Object newObject = in.readObject();
+            in.close();
+            return (Serializable) newObject;
+        }catch(Exception e){
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+
     /**
      * やってきたパケットpをもとにして，当該nicと
      * 同一NWに属する子ノードに対してARP要求を一斉送信する．
@@ -438,6 +576,22 @@ public class Nic implements Runnable {
      * @param p
      */
     public void broadCastARPReq(Packet p) {
+        if(this.getMyNode().getType() == Param.TYPE_ROUTER){
+            Router r = (Router)this.getMyNode();
+            Iterator<Computer> pcIte = r.getLANPCList().iterator();
+
+
+            while(pcIte.hasNext()){
+                Computer pc = pcIte.next();
+                //pcのNicを取得
+                Nic nic = pc.getNicMap().get("eth0");
+                ForwardHistory h = new ForwardHistory(this.getMyNode().getID(), this.getIpAddress(), this.getMacAddress(),
+                        pc.getID(), nic.getIpAddress(), nic.getMacAddress(), System.currentTimeMillis());
+                p.addRequestHistory(h);
+                //nicの入力バッファにパケットを入れる．
+                nic.getReceiveBuffer().offer(p);
+            }
+        }
 
     }
 

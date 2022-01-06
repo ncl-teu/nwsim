@@ -1,20 +1,20 @@
 package nwsim;
 
-import java.io.FileInputStream;
-import java.math.BigDecimal;
-import java.net.InetAddress;
-import java.net.InterfaceAddress;
-import java.net.UnknownHostException;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Properties;
-import java.util.StringTokenizer;
-
-import nwsim.env.*;
+import nwsim.env.Env;
+import nwsim.env.Nic;
+import nwsim.env.Statistics;
 import nwsim.logger.NWLog;
 import nwsim.network.ForwardHistory;
 import nwsim.network.Packet;
 import org.apache.commons.math3.random.RandomDataGenerator;
+
+import java.io.FileInputStream;
+import java.math.BigDecimal;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Properties;
 
 public class Param {
 
@@ -169,7 +169,7 @@ public class Param {
     public static double request_exp_dist_lambda_max;
 
     public static enum MSG_TYPE{
-        IP, PING, TCP, ARP, HTTP_GET, HTTP_POST, CTRL
+        IP, PING, TCP, ARP, HTTP_GET, HTTP_POST, CTRL, RIP_METRIC, ARP_REQ, ARP_RES
     }
 
 
@@ -204,6 +204,13 @@ public class Param {
 
     public static int dnat_mode;
 
+    public static long  routing_exchangespan;
+
+
+    /**
+     * ルータのARPを空にするかどうか
+     */
+    public static int noarp_enable;
 
     /**
      * Destination NAT (ポート転送）
@@ -274,6 +281,10 @@ public class Param {
             Param.http_post_response_size = Long.valueOf(Param.prop.getProperty("http_post_response_size")).longValue();
             //Param.http_post_request_limit = Long.valueOf(Param.prop.getProperty("http_post_request_limit")).longValue();
             Param.dnat_mode = Integer.valueOf(Param.prop.getProperty("dnat_mode")).intValue();
+
+            Param.routing_exchangespan = Long.valueOf(Param.prop.getProperty("routing_exchangespan")).longValue();
+
+            Param.noarp_enable = Integer.valueOf(Param.prop.getProperty("noarp_enable")).intValue();
             //02 end
             
             // Param.env_num_switch =
@@ -284,6 +295,8 @@ public class Param {
         }
 
     }
+
+
 
     /**
      * 

@@ -1,10 +1,10 @@
 package nwsim.env;
 
-import java.util.*;
-
 import nwsim.Param;
 import nwsim.network.RouteInfo;
 import nwsim.network.filtering.FilterRule;
+
+import java.util.*;
 
 /**
  * NWSimの環境を管理するクラスです．
@@ -129,7 +129,13 @@ public class Env {
             pc.registerArp(pc_nic.getNicName(), pc_nic.getGwIP(), nic.getMacAddress());
             pc.registerArp(pc_nic.getNicName(), pc_nic.getIpAddress(), pc_nic.getMacAddress());
             //ついでにルータのARPにも登録
-            r.registerArp(nic.getNicName(), pc_nic.getIpAddress(), pc_nic.getMacAddress());
+            if(Param.noarp_enable != 1){
+                r.registerArp(nic.getNicName(), pc_nic.getIpAddress(), pc_nic.getMacAddress());
+            }
+            r.getLANPCList().add(pc);
+            r.getLANNics().add(pc_nic);
+            r.getLANPCs().add(pc);
+            r.getLanNicList().add(pc_nic);
            // pc_idx++;
             this.pcCount++;
         }
@@ -158,6 +164,7 @@ public class Env {
             this.pcMap.remove(id);
             //Nicも削除
             this.nicMap.remove(mac);
+
         }
     }
 
@@ -481,7 +488,19 @@ public class Env {
                     }
                     cnt ++;
                 }
-                rule.setDnat_toIP(retNic.getIpAddress());
+
+                if(Param.noarp_enable !=1){
+                    rule.setDnat_toIP(retNic.getIpAddress());
+
+                }else{
+                    int idx2 = r.getLanNicList().size();
+                    int id = Param.genInt(0, idx2-1, 0, 0.5);
+                    Nic n = r.getLanNicList().get(id);
+                    rule.setDnat_toIP(n.getIpAddress());
+
+                }
+
+
                 r.registerFilter(rule);
                 //System.out.println();
 
