@@ -213,6 +213,11 @@ public class Param {
     public static int noarp_enable;
 
     /**
+     * NICのチーミングモード(0: OFF / 1: ON)
+     */
+    public static int nic_teaming;
+
+    /**
      * Destination NAT (ポート転送）
      */
     public static int PACKET_DNAT = 3;
@@ -285,6 +290,10 @@ public class Param {
             Param.routing_exchangespan = Long.valueOf(Param.prop.getProperty("routing_exchangespan")).longValue();
 
             Param.noarp_enable = Integer.valueOf(Param.prop.getProperty("noarp_enable")).intValue();
+
+            Param.nic_teaming = Integer.valueOf(Param.prop.getProperty("nic_teaming")).intValue();
+
+
             //02 end
             
             // Param.env_num_switch =
@@ -565,6 +574,7 @@ public class Param {
 
 
     }
+
 
     public void tranLog(Packet p, String result){
         Statistics stat = Env.getIns().findStat(p.getTranID());

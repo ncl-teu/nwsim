@@ -348,9 +348,12 @@ public class Router extends Node {
         long start = System.currentTimeMillis();
         this.initialize();
         Timer timer = new Timer();
+
         ExchangeTimer ex = new ExchangeTimer(this);
         //指定時間間隔で，ExchangeTimerを実行する．
-        timer.scheduleAtFixedRate(ex,10000,this.usedRouting.getExchangeSpan());
+        timer.scheduleAtFixedRate(ex, 10000, this.usedRouting.getExchangeSpan());
+
+
 
 
 /*

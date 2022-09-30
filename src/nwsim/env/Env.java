@@ -369,6 +369,14 @@ public class Env {
                     1, Param.router_nic_num_mu);
             //NICに対するループ
             for (int j = 0; j < nicNum; j++) {
+                //nicNumが3以上に限って，チーミングを行う．
+                if(nicNum >= 3){
+                    if(Param.nic_teaming == 1){
+                        //チーミングモードがOnのときに，チーミングを行う．
+
+                    }
+                }
+
                 // 帯域幅を決める．
                 long bw = Param.genLong(Param.bw_router_min, Param.bw_router_max, 1, Param.bw_router_mu);
                 // Macアドレス(本当は48bitだが，今回は一意かどうかが重要なので拘らない)
